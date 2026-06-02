@@ -1,0 +1,122 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe
+        shell: bash
+        run: |
+          python -m PyInstaller \
+            --name "VirtualProjectionViewer" \
+            --onedir \
+            --noconfirm \
+            --hidden-import moderngl \
+            --hidden-import glm \
+            --hidden-import numpy \
+            --hidden-import tkinter \
+            --hidden-import tkinter.filedialog \
+            --collect-all imgui_bundle \
+            --collect-all moderngl \
+            main.py
+
+          # Copy supporting files
+          cp camera.py dist/VirtualProjectionViewer/
+          cp renderer.py dist/VirtualProjectionViewer/
+          cp ndi_input.py dist/VirtualProjectionViewer/
+          cp obj_loader.py dist/VirtualProjectionViewer/
+          cp settings.py dist/VirtualProjectionViewer/
+
+      - name: Zip artifact
+        shell: bash
+        run: |
+          cd dist
+          7z a ../VirtualProjectionViewer-Windows.zip VirtualProjectionViewer/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirtualProjectionViewer-Windows
+          path: VirtualProjectionViewer-Windows.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build app
+        run: |
+          python -m PyInstaller \
+            --name "VirtualProjectionViewer" \
+            --onedir \
+            --noconfirm \
+            --hidden-import moderngl \
+            --hidden-import glm \
+            --hidden-import numpy \
+            --hidden-import tkinter \
+            --hidden-import tkinter.filedialog \
+            --collect-all imgui_bundle \
+            --collect-all moderngl \
+            main.py
+
+          # Copy supporting files
+          cp camera.py dist/VirtualProjectionViewer/
+          cp renderer.py dist/VirtualProjectionViewer/
+          cp ndi_input.py dist/VirtualProjectionViewer/
+          cp obj_loader.py dist/VirtualProjectionViewer/
+          cp settings.py dist/VirtualProjectionViewer/
+
+      - name: Zip artifact
+        run: |
+          cd dist
+          zip -r ../VirtualProjectionViewer-macOS.zip VirtualProjectionViewer/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirtualProjectionViewer-macOS
+          path: VirtualProjectionViewer-macOS.zip
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            VirtualProjectionViewer-Windows/VirtualProjectionViewer-Windows.zip
+            VirtualProjectionViewer-macOS/VirtualProjectionViewer-macOS.zip
+          generate_release_notes: true
