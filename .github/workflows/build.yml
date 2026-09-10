@@ -1,3 +1,9 @@
+# Virtual Projection Viewer — build workflow
+# v2 (2026-09-10)
+#   - bundle ndi-python (NDIlib) so releases have real NDI, not just the fallback
+#   - ad-hoc codesign the macOS bundle so its internal dylibs load
+#   - drop the redundant cp of source modules (PyInstaller already bundles them)
+
 name: Build
 
 on:
@@ -21,6 +27,9 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Verify NDI is importable
+        run: python -c "import NDIlib; print('NDIlib OK')"
+
       - name: Build exe
         shell: bash
         run: |
@@ -33,16 +42,11 @@ jobs:
             --hidden-import numpy \
             --hidden-import tkinter \
             --hidden-import tkinter.filedialog \
+            --hidden-import NDIlib \
+            --collect-all NDIlib \
             --collect-all imgui_bundle \
             --collect-all moderngl \
             main.py
-
-          # Copy supporting files
-          cp camera.py dist/VirtualProjectionViewer/
-          cp renderer.py dist/VirtualProjectionViewer/
-          cp ndi_input.py dist/VirtualProjectionViewer/
-          cp obj_loader.py dist/VirtualProjectionViewer/
-          cp settings.py dist/VirtualProjectionViewer/
 
       - name: Zip artifact
         shell: bash
@@ -70,6 +74,9 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Verify NDI is importable
+        run: python -c "import NDIlib; print('NDIlib OK')"
+
       - name: Build app
         run: |
           python -m PyInstaller \
@@ -81,21 +88,24 @@ jobs:
             --hidden-import numpy \
             --hidden-import tkinter \
             --hidden-import tkinter.filedialog \
+            --hidden-import NDIlib \
+            --collect-all NDIlib \
             --collect-all imgui_bundle \
             --collect-all moderngl \
             main.py
 
-          # Copy supporting files
-          cp camera.py dist/VirtualProjectionViewer/
-          cp renderer.py dist/VirtualProjectionViewer/
-          cp ndi_input.py dist/VirtualProjectionViewer/
-          cp obj_loader.py dist/VirtualProjectionViewer/
-          cp settings.py dist/VirtualProjectionViewer/
+      # Ad-hoc signature. Without this, macOS refuses to load the bundled
+      # Python dylib ("library load disallowed by system policy").
+      # This is not notarization — users still need to clear quarantine once.
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - dist/VirtualProjectionViewer
+          codesign --verify --verbose dist/VirtualProjectionViewer
 
       - name: Zip artifact
         run: |
           cd dist
-          zip -r ../VirtualProjectionViewer-macOS.zip VirtualProjectionViewer/
+          zip -ry ../VirtualProjectionViewer-macOS.zip VirtualProjectionViewer/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

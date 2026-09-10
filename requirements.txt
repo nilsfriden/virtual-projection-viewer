@@ -2,3 +2,4 @@ moderngl>=5.8.0
 PyGLM>=2.7.0
 numpy>=1.24.0
 imgui-bundle>=1.5.0
+ndi-python>=6.3.2
