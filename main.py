@@ -1,6 +1,6 @@
 """
 main.py — Virtual Projection Viewer
-v1.4 — Refined UI, persistent settings, white grid.
+v1.6 — Native file picker (portable-file-dialogs) in place of tkinter.
 
 Usage:
     python main.py                          # Starts with test cube or last model
@@ -37,7 +37,7 @@ SIDEBAR_WIDTH = 340
 
 
 class App:
-    VERSION = "1.4"
+    VERSION = "1.6"
     WINDOW_TITLE = f"Virtual Projection Viewer v{VERSION}"
 
     def __init__(self, args):
@@ -286,6 +286,7 @@ class App:
         imgui.spacing()
         if imgui.button("Load .obj...", (-1, 0)):
             self._open_file_dialog()
+        self._poll_file_dialog()
         imgui.spacing()
         imgui.text_colored(
             imgui.ImVec4(0.4, 0.4, 0.4, 1.0),
@@ -382,24 +383,56 @@ class App:
             )
 
     def _open_file_dialog(self):
+        """Open a native file picker.
+
+        Uses portable-file-dialogs rather than tkinter. tkinter creates its
+        own NSApplication and wants the main run loop, which HelloImGui/GLFW
+        already owns — on macOS that combination aborts the process the
+        moment the dialog opens.
+        """
         try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            filepath = filedialog.askopenfilename(
-                title="Select .obj model",
-                filetypes=[("Wavefront OBJ", "*.obj"), ("All files", "*.*")],
+            from imgui_bundle import portable_file_dialogs as pfd
+            self._file_dialog = pfd.open_file(
+                "Select .obj model",
+                "",
+                ["Wavefront OBJ", "*.obj", "All files", "*"],
             )
-            root.destroy()
-            if filepath:
-                result = load_obj(filepath)
-                self.scene.load_model(result['vertices'])
-                self._last_bounds = result['bounds']
-                self._model_path = filepath
-                self._fit_to_model(result['bounds'])
         except Exception as e:
+            self._file_dialog = None
             print(f"[app] File dialog error: {e}")
+
+    def _poll_file_dialog(self):
+        """Check an open picker once per frame.
+
+        pfd is non-blocking, so the selection arrives some frames after the
+        dialog was opened. Called from the sidebar draw code every frame.
+        """
+        dlg = getattr(self, "_file_dialog", None)
+        if dlg is None:
+            return
+        try:
+            if not dlg.ready():
+                return
+            paths = dlg.result()
+        except Exception as e:
+            self._file_dialog = None
+            print(f"[app] File dialog error: {e}")
+            return
+
+        self._file_dialog = None
+        if not paths:
+            return
+
+        filepath = paths[0]
+        try:
+            result = load_obj(filepath)
+            self.scene.load_model(result['vertices'])
+            self._last_bounds = result['bounds']
+            self._model_path = filepath
+            self._fit_to_model(result['bounds'])
+            print(f"[app] Loaded model: {filepath}")
+        except Exception as e:
+            print(f"[app] Failed to load {filepath}: {e}")
 
     # -------------------------------------------------------------------
     # Settings persistence
