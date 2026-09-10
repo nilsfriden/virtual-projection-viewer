@@ -1,8 +1,14 @@
 # Virtual Projection Viewer — build workflow
+# v3 (2026-09-10)
+#   - macOS: build a real .app bundle (--windowed) so the file dialog works
+#   - macOS: declare NSAppleEventsUsageDescription, required for osascript-
+#     backed file pickers on recent macOS
+#   - macOS: sign AFTER the plist edit (editing a bundle invalidates its signature)
+#   - Windows job unchanged from v2
+#
 # v2 (2026-09-10)
 #   - bundle ndi-python (NDIlib) so releases have real NDI, not just the fallback
 #   - ad-hoc codesign the macOS bundle so its internal dylibs load
-#   - drop the redundant cp of source modules (PyInstaller already bundles them)
 
 name: Build
 
@@ -77,12 +83,18 @@ jobs:
       - name: Verify NDI is importable
         run: python -c "import NDIlib; print('NDIlib OK')"
 
+      # --windowed produces dist/VirtualProjectionViewer.app alongside the
+      # plain onedir folder. The .app is what we ship: a bare binary is not
+      # permitted to send Apple events, which is what the imgui_bundle file
+      # dialog uses under the hood.
       - name: Build app
         run: |
           python -m PyInstaller \
             --name "VirtualProjectionViewer" \
             --onedir \
+            --windowed \
             --noconfirm \
+            --osx-bundle-identifier se.velourfilm.virtualprojectionviewer \
             --hidden-import moderngl \
             --hidden-import glm \
             --hidden-import numpy \
@@ -94,18 +106,30 @@ jobs:
             --collect-all moderngl \
             main.py
 
-      # Ad-hoc signature. Without this, macOS refuses to load the bundled
-      # Python dylib ("library load disallowed by system policy").
-      # This is not notarization — users still need to clear quarantine once.
+      # Without this key macOS denies the Apple event outright and the
+      # picker throws before it can draw anything.
+      - name: Add Apple events usage description
+        run: |
+          PLIST=dist/VirtualProjectionViewer.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSAppleEventsUsageDescription string 'Virtual Projection Viewer uses this to show the file picker when you load a model.'" \
+            "$PLIST"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSHighResolutionCapable bool true" \
+            "$PLIST" || true
+          plutil -lint "$PLIST"
+
+      # Must come after the plist edit — any change to bundle contents
+      # invalidates an existing signature.
       - name: Ad-hoc codesign
         run: |
-          codesign --force --deep --sign - dist/VirtualProjectionViewer
-          codesign --verify --verbose dist/VirtualProjectionViewer
+          codesign --force --deep --sign - dist/VirtualProjectionViewer.app
+          codesign --verify --verbose dist/VirtualProjectionViewer.app
 
       - name: Zip artifact
         run: |
           cd dist
-          zip -ry ../VirtualProjectionViewer-macOS.zip VirtualProjectionViewer/
+          zip -ry ../VirtualProjectionViewer-macOS.zip VirtualProjectionViewer.app/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
